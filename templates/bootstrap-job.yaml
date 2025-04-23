@@ -1,6 +1,6 @@
-# bootstrap-job.yaml
+# Modified bootstrap-job.yaml to support CDC Gateway
 ---
-{{- if and .Values.bootstrap.enabled .Values.sqlGateway.enabled }}
+{{- if .Values.bootstrap.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,6 +35,73 @@ spec:
             - "/bin/sh"
             - "-c"
             - |
+              {{- if .Values.bootstrap.useCdcGateway }}
+              # Use CDC Gateway when enabled
+              CDC_GATEWAY_SERVICE={{ include "flink-cdc.fullname" . }}-cdcgateway
+              CDC_GATEWAY_PORT={{ .Values.cdcGateway.port }}
+              
+              echo "Waiting for CDC Gateway to be ready..."
+              until curl -s http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/health > /dev/null; do
+                sleep 5
+              done
+              
+              echo "CDC Gateway is ready, setting up connectors and pipeline..."
+              
+              {{- if .Values.restoreFromSavepoint }}
+              SAVEPOINT_OPTION="savepoint={{ .Values.restoreFromSavepoint }}"
+              {{- else }}
+              SAVEPOINT_OPTION=""
+              {{- end }}
+              
+              # Create CDC source connector through API
+              curl -s -X POST "http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/connectors" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "name": "mssql-source",
+                  "type": "sqlserver-cdc",
+                  "config": {
+                    "hostname": "${MSSQL_SERVER}",
+                    "port": "${MSSQL_PORT}",
+                    "username": "${MSSQL_USERNAME}",
+                    "password": "${MSSQL_PASSWORD}",
+                    "database-name": "${MSSQL_DATABASE}",
+                    "table-name": "source_table",
+                    "database-history": "memory",
+                    "include-schema-changes": "true"
+                  }
+                }'
+              
+              # Create Kafka sink connector through API
+              curl -s -X POST "http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/connectors" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "name": "kafka-sink",
+                  "type": "kafka",
+                  "config": {
+                    "bootstrapServers": "${KAFKA_BROKERS}",
+                    "topic": "sink_topic",
+                    "format": "json"
+                  }
+                }'
+              
+              # Create pipeline to connect source to sink
+              curl -s -X POST "http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/pipelines" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "name": "mssql-to-kafka",
+                  "source": "mssql-source",
+                  "sink": "kafka-sink",
+                  "parallelism": 2,
+                  "transformations": [],
+                  "options": {
+                    "${SAVEPOINT_OPTION}"
+                  }
+                }'
+                
+              echo "Pipeline deployed successfully through CDC Gateway"
+              
+              {{- else }}
+              # Fall back to SQL Gateway when CDC Gateway is not used
               SQLGATEWAY_SERVICE={{ include "flink-cdc.fullname" . }}-sqlgateway
               SQLGATEWAY_PORT={{ .Values.sqlGateway.port }}
               
@@ -74,6 +141,7 @@ spec:
               
               # Close session
               curl -s -X DELETE "http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions/${SESSION_HANDLE}"
+              {{- end }}
           resources:
             {{- toYaml .Values.bootstrap.resources | nindent 12 }}
           volumeMounts:
@@ -87,4 +155,3 @@ spec:
               - key: job.sql
                 path: job.sql
 {{- end }}
----

@@ -1,0 +1,25 @@
+# service-cdcgateway.yaml
+---
+{{- if .Values.cdcGateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-cdcgateway
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cdcgateway
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.cdcGateway.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.cdcGateway.configuration.adminPort }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+  selector:
+    {{- include "flink-cdc.cdcgateway.selectorLabels" . | nindent 4 }}
+{{- end }}
+---

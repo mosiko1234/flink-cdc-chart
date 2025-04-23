@@ -10,6 +10,27 @@ image:
   tag: 1.17.1
   pullPolicy: IfNotPresent
 
+# CDC Gateway specific image (could be the same as Flink with different args)
+cdcGateway:
+  image:
+    repository: registry.example.com/flink-cdc  # Update with your CDC gateway image
+    tag: "0.7.0"
+    pullPolicy: IfNotPresent
+  enabled: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 0.5
+      memory: 512Mi
+  port: 8084  # Different from SQL Gateway port
+  configuration:
+    adminPort: 8085
+    maxConnections: 100
+    maxConcurrentJobs: 10
+    
 nameOverride: ""
 fullnameOverride: ""
 
@@ -97,6 +118,25 @@ bootstrap:
     requests:
       cpu: 100m
       memory: 128Mi
+  useCdcGateway: true  # Set to true to use CDC Gateway for bootstrapping
+  cdcConnectors:
+    - name: "mssql-source"
+      type: "sqlserver-cdc"
+      configuration:
+        hostname: "${MSSQL_SERVER}"
+        port: "${MSSQL_PORT}"
+        username: "${MSSQL_USERNAME}"
+        password: "${MSSQL_PASSWORD}"
+        database-name: "${MSSQL_DATABASE}"
+        table-name: "source_table"
+        database-history: "memory"
+        include-schema-changes: "true"
+    - name: "kafka-sink"
+      type: "kafka"
+      configuration:
+        bootstrapServers: "${KAFKA_BROKERS}"
+        topic: "sink_topic"
+        format: "json"
 
 restoreFromSavepoint: ""  # Path to savepoint in S3/MinIO
 

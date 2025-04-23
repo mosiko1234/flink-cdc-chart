@@ -1,4 +1,4 @@
-# _helpers.tpl
+# _helpers.tpl - Add CDC Gateway selectors
 ---
 {{/* vim: set filetype=mustache: */}}
 {{/*
@@ -73,6 +73,14 @@ SQL Gateway selector labels
 {{- define "flink-cdc.sqlgateway.selectorLabels" -}}
 {{ include "flink-cdc.selectorLabels" . }}
 app.kubernetes.io/component: sqlgateway
+{{- end }}
+
+{{/*
+CDC Gateway selector labels
+*/}}
+{{- define "flink-cdc.cdcgateway.selectorLabels" -}}
+{{ include "flink-cdc.selectorLabels" . }}
+app.kubernetes.io/component: cdcgateway
 {{- end }}
 
 {{/*

@@ -59,3 +59,22 @@ data:
   job.sql: |
 {{ .Files.Get "files/sql/job.sql" | indent 4 }}
 ---
+# Add a configmap for CDC Gateway configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-cdcgateway-config
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+data:
+  cdcgateway-config.yaml: |
+    adminPort: {{ .Values.cdcGateway.configuration.adminPort }}
+    maxConnections: {{ .Values.cdcGateway.configuration.maxConnections }}
+    maxConcurrentJobs: {{ .Values.cdcGateway.configuration.maxConcurrentJobs }}
+    flinkJobmanager: "{{ include "flink-cdc.fullname" . }}-jobmanager:{{ .Values.jobmanager.ports.rpc }}"
+    stateBackend: "{{ .Values.flinkConfiguration.state.backend }}"
+    checkpointsDir: "{{ .Values.flinkConfiguration.state.checkpoints.dir }}"
+    savepointsDir: "{{ .Values.flinkConfiguration.state.savepoints.dir }}"
+    s3Endpoint: "{{ .Values.flinkConfiguration.s3.endpoint }}"
+    connectorJarsPath: "/opt/flink/lib"
+---
