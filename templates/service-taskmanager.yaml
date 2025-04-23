@@ -1,0 +1,23 @@
+# service-taskmanager.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-taskmanager
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: taskmanager
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.taskmanager.ports.rpc }}
+      targetPort: rpc
+      protocol: TCP
+      name: rpc
+    - port: {{ .Values.taskmanager.ports.data }}
+      targetPort: data
+      protocol: TCP
+      name: data
+  selector:
+    {{- include "flink-cdc.taskmanager.selectorLabels" . | nindent 4 }}
+---

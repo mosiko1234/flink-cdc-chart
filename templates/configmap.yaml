@@ -1,0 +1,61 @@
+# configmap.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-config
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+data:
+  flink-conf.yaml: |
+    {{- range $key, $value := .Values.flinkConfiguration }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+    
+    # Auto-configured settings
+    jobmanager.rpc.address: {{ include "flink-cdc.fullname" . }}-jobmanager
+    taskmanager.numberOfTaskSlots: {{ .Values.taskmanager.slots | quote }}
+    
+  log4j-console.properties: |
+    # This affects logging for both user code and Flink
+    rootLogger.level = {{ .Values.logging.logLevel }}
+    rootLogger.appenderRef.console.ref = ConsoleAppender
+    
+    # Uncomment this if you want to _only_ change Flink's logging
+    #logger.flink.name = org.apache.flink
+    #logger.flink.level = INFO
+    
+    # The following lines keep the log level of common libraries/connectors on
+    # log level INFO. The root logger does not override this. You have to manually
+    # change the log levels here.
+    logger.akka.name = akka
+    logger.akka.level = INFO
+    logger.kafka.name = org.apache.kafka
+    logger.kafka.level = INFO
+    logger.hadoop.name = org.apache.hadoop
+    logger.hadoop.level = INFO
+    logger.zookeeper.name = org.apache.zookeeper
+    logger.zookeeper.level = INFO
+    
+    # Log all infos to the console
+    appender.console.name = ConsoleAppender
+    appender.console.type = CONSOLE
+    appender.console.layout.type = PatternLayout
+    appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+    
+  sql.yaml: |
+    catalogs:
+      - name: mssql_catalog
+        type: jdbc-catalog
+        default-database: ${MSSQL_DATABASE}
+        username: ${MSSQL_USERNAME}
+        password: ${MSSQL_PASSWORD}
+        base-url: jdbc:sqlserver://${MSSQL_SERVER}:${MSSQL_PORT};databaseName=${MSSQL_DATABASE}
+        driver: com.microsoft.sqlserver.jdbc.SQLServerDriver
+      - name: kafka_catalog
+        type: generic_in_memory
+        default-database: default
+
+  job.sql: |
+{{ .Files.Get "files/sql/job.sql" | indent 4 }}
+---

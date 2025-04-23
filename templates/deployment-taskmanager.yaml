@@ -1,0 +1,130 @@
+# deployment-taskmanager.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-taskmanager
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: taskmanager
+spec:
+  replicas: {{ .Values.taskmanager.replicas }}
+  selector:
+    matchLabels:
+      {{- include "flink-cdc.taskmanager.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "flink-cdc.taskmanager.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "flink-cdc.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+        - name: taskmanager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: {{ .Values.securityContext.readOnlyRootFilesystem }}
+          args: ["taskmanager"]
+          env:
+            - name: FLINK_CONF_DIR
+              value: /opt/flink/conf
+            - name: MSSQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mssqlCredentials.name }}
+                  key: {{ .Values.secrets.mssqlCredentials.usernameKey }}
+            - name: MSSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mssqlCredentials.name }}
+                  key: {{ .Values.secrets.mssqlCredentials.passwordKey }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.s3Credentials.name }}
+                  key: {{ .Values.secrets.s3Credentials.accessKeyKey }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.s3Credentials.name }}
+                  key: {{ .Values.secrets.s3Credentials.secretKeyKey }}
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.taskmanager.ports.rpc }}
+              name: rpc
+            - containerPort: {{ .Values.taskmanager.ports.data }}
+              name: data
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.taskmanager.ports.rpc }}
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.taskmanager.ports.rpc }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.taskmanager.resources | nindent 12 }}
+          volumeMounts:
+            - name: flink-config-volume
+              mountPath: /opt/flink/conf
+            - name: flink-libs
+              mountPath: /opt/flink/lib
+            {{- if .Values.persistence.enabled }}
+            - name: flink-data
+              mountPath: /opt/flink/data
+            {{- end }}
+            - name: flink-logs
+              mountPath: /opt/flink/log
+      volumes:
+        - name: flink-config-volume
+          configMap:
+            name: {{ include "flink-cdc.fullname" . }}-config
+            items:
+              - key: flink-conf.yaml
+                path: flink-conf.yaml
+              - key: log4j-console.properties
+                path: log4j-console.properties
+        - name: flink-libs
+          emptyDir: {}
+        - name: flink-logs
+          emptyDir: {}
+        {{- if .Values.persistence.enabled }}
+        - name: flink-data
+          persistentVolumeClaim:
+            claimName: {{ include "flink-cdc.fullname" . }}-data
+        {{- end }}
+      initContainers:
+        - name: copy-libs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "cp -r /connectors/* /opt/flink/lib/"]
+          volumeMounts:
+            - name: flink-libs
+              mountPath: /opt/flink/lib
+            - name: connector-jars
+              mountPath: /connectors
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---

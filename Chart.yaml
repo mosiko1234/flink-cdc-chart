@@ -1,0 +1,9 @@
+apiVersion: v2
+name: flink-cdc-chart
+description: A Helm chart for Apache Flink with CDC capabilities for OpenShift air-gapped environments
+type: application
+version: 0.1.0
+appVersion: "1.17.1"  # Update with your Flink version
+maintainers:
+  - name: Moshe Eliya
+    email: mosiko1234@gmail.com

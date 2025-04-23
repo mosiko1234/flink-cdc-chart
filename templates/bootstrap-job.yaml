@@ -1,0 +1,90 @@
+# bootstrap-job.yaml
+---
+{{- if and .Values.bootstrap.enabled .Values.sqlGateway.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-bootstrap
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "flink-cdc.labels" . | nindent 8 }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "flink-cdc.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+        - name: bootstrap
+          image: "{{ .Values.bootstrap.image.repository }}:{{ .Values.bootstrap.image.tag }}"
+          imagePullPolicy: {{ .Values.bootstrap.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              SQLGATEWAY_SERVICE={{ include "flink-cdc.fullname" . }}-sqlgateway
+              SQLGATEWAY_PORT={{ .Values.sqlGateway.port }}
+              
+              echo "Waiting for SQL Gateway to be ready..."
+              until curl -s http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/info > /dev/null; do
+                sleep 5
+              done
+              
+              echo "SQL Gateway is ready, submitting job..."
+              
+              {{- if .Values.restoreFromSavepoint }}
+              SAVEPOINT_OPTION="-d?savepoint.path={{ .Values.restoreFromSavepoint }}"
+              {{- else }}
+              SAVEPOINT_OPTION=""
+              {{- end }}
+              
+              JOB_SQL=$(cat /sql/job.sql)
+              
+              # Create session
+              SESSION_HANDLE=$(curl -s -X POST http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions \
+                -H "Content-Type: application/json" \
+                -d '{"sessionName":"bootstrap-session"}' | jq -r '.sessionHandle')
+              
+              if [ -z "$SESSION_HANDLE" ] || [ "$SESSION_HANDLE" = "null" ]; then
+                echo "Failed to create session"
+                exit 1
+              fi
+              
+              echo "Session created with handle: $SESSION_HANDLE"
+              
+              # Execute SQL statements
+              curl -s -X POST "http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions/${SESSION_HANDLE}/statements" \
+                -H "Content-Type: application/json" \
+                -d "{\"statement\":\"${JOB_SQL}\"${SAVEPOINT_OPTION}}"
+              
+              echo "Job submitted successfully"
+              
+              # Close session
+              curl -s -X DELETE "http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions/${SESSION_HANDLE}"
+          resources:
+            {{- toYaml .Values.bootstrap.resources | nindent 12 }}
+          volumeMounts:
+            - name: sql-volume
+              mountPath: /sql
+      volumes:
+        - name: sql-volume
+          configMap:
+            name: {{ include "flink-cdc.fullname" . }}-config
+            items:
+              - key: job.sql
+                path: job.sql
+{{- end }}
+---

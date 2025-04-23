@@ -1,0 +1,148 @@
+# values.yaml
+---
+global:
+  imageRegistry: ""  # Registry for air-gapped environment
+  imagePullSecrets: []
+  storageClass: ""
+
+image:
+  repository: registry.example.com/flink  # Update with your internal registry
+  tag: 1.17.1
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+jobmanager:
+  replicas: 1
+  resources:
+    limits:
+      cpu: 2
+      memory: 2Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  ports:
+    ui: 8081
+    rpc: 6123
+    blob: 6124
+    
+taskmanager:
+  replicas: 1
+  resources:
+    limits:
+      cpu: 4
+      memory: 4Gi
+    requests:
+      cpu: 2
+      memory: 2Gi
+  ports:
+    rpc: 6122
+    data: 6121
+  slots: 2
+    
+sqlGateway:
+  enabled: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 0.5
+      memory: 512Mi
+  port: 8083
+
+securityContext:
+  # OpenShift restricted-v2 SCC compatibility
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false  # Set to true if possible, but might need false for logs
+  capabilities:
+    drop:
+      - ALL
+  # Don't set runAsUser, runAsGroup, fsGroup - let OpenShift assign them
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+flinkConfiguration:
+  # Common configuration for all components
+  "taskmanager.numberOfTaskSlots": "2"
+  "parallelism.default": "2"
+  "state.backend": "rocksdb"
+  "state.backend.incremental": "true"
+  "execution.checkpointing.interval": "60000"  # 1 minute
+  "execution.checkpointing.mode": "EXACTLY_ONCE"
+  
+  # S3/MinIO checkpoint configuration
+  "state.checkpoints.dir": "s3://flink-checkpoints/"
+  "state.savepoints.dir": "s3://flink-savepoints/"
+  "s3.endpoint": "http://minio.example.com:9000"  # Update with your MinIO service
+  "s3.path.style.access": "true"
+  "s3.access-key": ""  # To be provided in secrets
+  "s3.secret-key": ""  # To be provided in secrets
+
+bootstrap:
+  enabled: true
+  image:
+    repository: registry.example.com/curl  # For air-gapped environments
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+restoreFromSavepoint: ""  # Path to savepoint in S3/MinIO
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClassName: ""
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+  prometheusRule:
+    enabled: false
+
+# Logs configuration
+logging:
+  logLevel: INFO
+  
+# Environment variables for all Flink components
+env:
+  - name: MSSQL_SERVER
+    value: "mssql.example.com"
+  - name: MSSQL_PORT
+    value: "1433"
+  - name: MSSQL_DATABASE
+    value: "example_db"
+  - name: KAFKA_BROKERS
+    value: "kafka-broker:9092"
+  
+# Secret references for credentials
+secrets:
+  mssqlCredentials:
+    name: "mssql-creds"
+    usernameKey: "username"
+    passwordKey: "password"
+  s3Credentials:
+    name: "s3-creds"
+    accessKeyKey: "accessKey"
+    secretKeyKey: "secretKey"
+
+# Network policy
+networkPolicy:
+  enabled: false
+
+# Service type - using ClusterIP as required
+service:
+  type: ClusterIP
+---

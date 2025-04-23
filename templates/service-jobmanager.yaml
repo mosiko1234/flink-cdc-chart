@@ -1,0 +1,27 @@
+# service-jobmanager.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-jobmanager
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobmanager
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.jobmanager.ports.ui }}
+      targetPort: ui
+      protocol: TCP
+      name: ui
+    - port: {{ .Values.jobmanager.ports.rpc }}
+      targetPort: rpc
+      protocol: TCP
+      name: rpc
+    - port: {{ .Values.jobmanager.ports.blob }}
+      targetPort: blob
+      protocol: TCP
+      name: blob
+  selector:
+    {{- include "flink-cdc.jobmanager.selectorLabels" . | nindent 4 }}
+---

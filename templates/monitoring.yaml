@@ -1,0 +1,77 @@
+# monitoring.yaml
+---
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-prometheus-config
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+data:
+  flink-metrics.yaml: |
+    # This file controls the Flink metrics configuration
+    # The configuration is maintained in this ConfigMap
+    metrics.reporters: prom
+    metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+    metrics.reporter.prom.port: 9249
+
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "flink-cdc.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.monitoring.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: flink.rules
+      rules:
+        - alert: FlinkJobFailing
+          expr: flink_jobmanager_job_numRestarts > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flink job is failing"
+            description: "Flink job {{ $labels.job_name }} ({{ $labels.job_id }}) has restarted {{ $value }} times in the last 5 minutes."
+        - alert: FlinkTaskManagerNotRunning
+          expr: sum(up{job="flink-taskmanager"}) < {{ .Values.taskmanager.replicas }}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TaskManager not running"
+            description: "One or more TaskManagers are not running."
+        - alert: FlinkJobManagerNotRunning
+          expr: sum(up{job="flink-jobmanager"}) < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "JobManager not running"
+            description: "The JobManager is not running."
+{{- end }}
+{{- end }}
+---

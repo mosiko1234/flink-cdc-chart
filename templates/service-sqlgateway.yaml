@@ -1,0 +1,21 @@
+# service-sqlgateway.yaml
+---
+{{- if .Values.sqlGateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flink-cdc.fullname" . }}-sqlgateway
+  labels:
+    {{- include "flink-cdc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sqlgateway
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.sqlGateway.port }}
+      targetPort: sql
+      protocol: TCP
+      name: sql
+  selector:
+    {{- include "flink-cdc.sqlgateway.selectorLabels" . | nindent 4 }}
+{{- end }}
+---
