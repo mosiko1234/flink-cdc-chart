@@ -1,4 +1,4 @@
-# service-cdcgateway.yaml
+# templates/service-cdcgateway.yaml
 ---
 {{- if .Values.cdcGateway.enabled }}
 apiVersion: v1

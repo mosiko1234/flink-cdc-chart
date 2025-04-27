@@ -1,4 +1,4 @@
-# deployment-cdcgateway.yaml
+# templates/deployment-cdcgateway.yaml
 ---
 {{- if .Values.cdcGateway.enabled }}
 apiVersion: apps/v1
@@ -18,7 +18,7 @@ spec:
       labels:
         {{- include "flink-cdc.cdcgateway.selectorLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -32,7 +32,6 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: {{ .Values.securityContext.readOnlyRootFilesystem }}
-          # CDC Gateway specific startup command
           args: ["gateway", "--config", "/opt/flink/conf/cdcgateway-config.yaml"]
           env:
             - name: FLINK_CONF_DIR
@@ -40,24 +39,26 @@ spec:
             - name: MSSQL_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.mssqlCredentials.name }}
-                  key: {{ .Values.secrets.mssqlCredentials.usernameKey }}
+                  name: {{ .Values.existingSecrets.mssqlCredentials.name }}
+                  key: {{ .Values.existingSecrets.mssqlCredentials.usernameKey }}
             - name: MSSQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.mssqlCredentials.name }}
-                  key: {{ .Values.secrets.mssqlCredentials.passwordKey }}
+                  name: {{ .Values.existingSecrets.mssqlCredentials.name }}
+                  key: {{ .Values.existingSecrets.mssqlCredentials.passwordKey }}
+            - name: MINIO_ENDPOINT
+              value: {{ .Values.externalServices.minio.endpoint | quote }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.s3Credentials.name }}
-                  key: {{ .Values.secrets.s3Credentials.accessKeyKey }}
+                  name: {{ .Values.existingSecrets.minioCredentials.name }}
+                  key: {{ .Values.existingSecrets.minioCredentials.accessKeyKey }}
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.s3Credentials.name }}
-                  key: {{ .Values.secrets.s3Credentials.secretKeyKey }}
-            {{- range .Values.env }}
+                  name: {{ .Values.existingSecrets.minioCredentials.name }}
+                  key: {{ .Values.existingSecrets.minioCredentials.secretKeyKey }}
+            {{- range .Values.extraEnvVars }}
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
@@ -86,10 +87,13 @@ spec:
             - name: cdc-gateway-config
               mountPath: /opt/flink/conf/cdcgateway-config.yaml
               subPath: cdcgateway-config.yaml
-            - name: flink-libs
+            - name: flink-lib
               mountPath: /opt/flink/lib
-            - name: flink-logs
+            - name: flink-log
               mountPath: /opt/flink/log
+            - name: pipeline-definitions
+              mountPath: /opt/flink/pipelines/pipeline-definitions.json
+              subPath: pipeline-definitions.json
       volumes:
         - name: flink-config-volume
           configMap:
@@ -101,32 +105,19 @@ spec:
                 path: log4j-console.properties
         - name: cdc-gateway-config
           configMap:
-            name: {{ include "flink-cdc.fullname" . }}-cdcgateway-config
-        - name: flink-libs
+            name: {{ include "flink-cdc.fullname" . }}-config
+            items:
+              - key: cdcgateway-config.yaml
+                path: cdcgateway-config.yaml
+        - name: pipeline-definitions
+          configMap:
+            name: {{ include "flink-cdc.fullname" . }}-config
+            items:
+              - key: pipeline-definitions.json
+                path: pipeline-definitions.json
+        - name: flink-lib
           emptyDir: {}
-        - name: flink-logs
+        - name: flink-log
           emptyDir: {}
-      initContainers:
-        - name: copy-libs
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["sh", "-c", "cp -r /connectors/* /opt/flink/lib/"]
-          volumeMounts:
-            - name: flink-libs
-              mountPath: /opt/flink/lib
-            - name: connector-jars
-              mountPath: /connectors
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
 {{- end }}
 ---

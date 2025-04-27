@@ -1,4 +1,4 @@
-# pvc.yaml
+# templates/pvc.yaml
 ---
 {{- if .Values.persistence.enabled }}
 apiVersion: v1

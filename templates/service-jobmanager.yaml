@@ -1,4 +1,4 @@
-# service-jobmanager.yaml
+# templates/service-jobmanager.yaml
 ---
 apiVersion: v1
 kind: Service

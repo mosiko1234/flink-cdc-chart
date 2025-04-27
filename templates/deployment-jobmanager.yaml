@@ -1,4 +1,4 @@
-# deployment-jobmanager.yaml
+# templates/deployment-jobmanager.yaml
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -8,7 +8,11 @@ metadata:
     {{- include "flink-cdc.labels" . | nindent 4 }}
     app.kubernetes.io/component: jobmanager
 spec:
+  {{- if not .Values.jobmanager.highAvailability.enabled }}
+  replicas: 1
+  {{- else }}
   replicas: {{ .Values.jobmanager.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "flink-cdc.jobmanager.selectorLabels" . | nindent 6 }}
@@ -17,7 +21,7 @@ spec:
       labels:
         {{- include "flink-cdc.jobmanager.selectorLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -38,24 +42,26 @@ spec:
             - name: MSSQL_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.mssqlCredentials.name }}
-                  key: {{ .Values.secrets.mssqlCredentials.usernameKey }}
+                  name: {{ .Values.existingSecrets.mssqlCredentials.name }}
+                  key: {{ .Values.existingSecrets.mssqlCredentials.usernameKey }}
             - name: MSSQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.mssqlCredentials.name }}
-                  key: {{ .Values.secrets.mssqlCredentials.passwordKey }}
+                  name: {{ .Values.existingSecrets.mssqlCredentials.name }}
+                  key: {{ .Values.existingSecrets.mssqlCredentials.passwordKey }}
+            - name: MINIO_ENDPOINT
+              value: {{ .Values.externalServices.minio.endpoint | quote }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.s3Credentials.name }}
-                  key: {{ .Values.secrets.s3Credentials.accessKeyKey }}
+                  name: {{ .Values.existingSecrets.minioCredentials.name }}
+                  key: {{ .Values.existingSecrets.minioCredentials.accessKeyKey }}
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.s3Credentials.name }}
-                  key: {{ .Values.secrets.s3Credentials.secretKeyKey }}
-            {{- range .Values.env }}
+                  name: {{ .Values.existingSecrets.minioCredentials.name }}
+                  key: {{ .Values.existingSecrets.minioCredentials.secretKeyKey }}
+            {{- range .Values.extraEnvVars }}
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
@@ -82,9 +88,9 @@ spec:
           volumeMounts:
             - name: flink-config-volume
               mountPath: /opt/flink/conf
-            - name: flink-libs
+            - name: flink-lib
               mountPath: /opt/flink/lib
-            - name: flink-logs
+            - name: flink-log
               mountPath: /opt/flink/log
       volumes:
         - name: flink-config-volume
@@ -95,39 +101,8 @@ spec:
                 path: flink-conf.yaml
               - key: log4j-console.properties
                 path: log4j-console.properties
-        - name: flink-libs
+        - name: flink-lib
           emptyDir: {}
-        - name: flink-logs
+        - name: flink-log
           emptyDir: {}
-      initContainers:
-        - name: copy-libs
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["sh", "-c", "cp -r /connectors/* /opt/flink/lib/"]
-          volumeMounts:
-            - name: flink-libs
-              mountPath: /opt/flink/lib
-            - name: connector-jars
-              mountPath: /connectors
-        {{- if .Values.persistence.enabled }}
-        - name: flink-data-permission
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["sh", "-c", "mkdir -p /flink-data/taskmanager && chmod -R 777 /flink-data"]
-          volumeMounts:
-            - name: flink-data
-              mountPath: /flink-data
-        {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
 ---

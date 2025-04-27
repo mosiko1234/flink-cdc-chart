@@ -1,4 +1,4 @@
-# Modified bootstrap-job.yaml to support CDC Gateway
+# templates/bootstrap-job.yaml
 ---
 {{- if .Values.bootstrap.enabled }}
 apiVersion: batch/v1
@@ -8,7 +8,7 @@ metadata:
   labels:
     {{- include "flink-cdc.labels" . | nindent 4 }}
 spec:
-  backoffLimit: 6
+  backoffLimit: {{ .Values.bootstrap.retries }}
   ttlSecondsAfterFinished: 600
   template:
     metadata:
@@ -17,7 +17,7 @@ spec:
         app.kubernetes.io/component: bootstrap
     spec:
       restartPolicy: OnFailure
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -42,63 +42,26 @@ spec:
               
               echo "Waiting for CDC Gateway to be ready..."
               until curl -s http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/health > /dev/null; do
-                sleep 5
+                echo "Waiting for CDC Gateway... retrying in {{ .Values.bootstrap.backoffSeconds }} seconds"
+                sleep {{ .Values.bootstrap.backoffSeconds }}
               done
               
-              echo "CDC Gateway is ready, setting up connectors and pipeline..."
+              echo "CDC Gateway is ready, loading pipelines..."
               
-              {{- if .Values.restoreFromSavepoint }}
-              SAVEPOINT_OPTION="savepoint={{ .Values.restoreFromSavepoint }}"
-              {{- else }}
-              SAVEPOINT_OPTION=""
-              {{- end }}
-              
-              # Create CDC source connector through API
-              curl -s -X POST "http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/connectors" \
+              # Get pipelines from the pipeline definition file
+              curl -s -X POST http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/pipelines/import \
                 -H "Content-Type: application/json" \
-                -d '{
-                  "name": "mssql-source",
-                  "type": "sqlserver-cdc",
-                  "config": {
-                    "hostname": "${MSSQL_SERVER}",
-                    "port": "${MSSQL_PORT}",
-                    "username": "${MSSQL_USERNAME}",
-                    "password": "${MSSQL_PASSWORD}",
-                    "database-name": "${MSSQL_DATABASE}",
-                    "table-name": "source_table",
-                    "database-history": "memory",
-                    "include-schema-changes": "true"
-                  }
-                }'
+                -d @/pipelines/pipeline-definitions.json
               
-              # Create Kafka sink connector through API
-              curl -s -X POST "http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/connectors" \
-                -H "Content-Type: application/json" \
-                -d '{
-                  "name": "kafka-sink",
-                  "type": "kafka",
-                  "config": {
-                    "bootstrapServers": "${KAFKA_BROKERS}",
-                    "topic": "sink_topic",
-                    "format": "json"
-                  }
-                }'
+              echo "Pipelines loaded successfully"
               
-              # Create pipeline to connect source to sink
-              curl -s -X POST "http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/pipelines" \
-                -H "Content-Type: application/json" \
-                -d '{
-                  "name": "mssql-to-kafka",
-                  "source": "mssql-source",
-                  "sink": "kafka-sink",
-                  "parallelism": 2,
-                  "transformations": [],
-                  "options": {
-                    "${SAVEPOINT_OPTION}"
-                  }
-                }'
-                
-              echo "Pipeline deployed successfully through CDC Gateway"
+              # Wait for pipelines to be successfully running
+              echo "Waiting for pipelines to be successfully running..."
+              sleep 10
+              
+              # Check pipeline status
+              PIPELINE_STATUS=$(curl -s http://${CDC_GATEWAY_SERVICE}:${CDC_GATEWAY_PORT}/api/v1/pipelines | jq -r '.[].status')
+              echo "Pipeline statuses: ${PIPELINE_STATUS}"
               
               {{- else }}
               # Fall back to SQL Gateway when CDC Gateway is not used
@@ -107,51 +70,87 @@ spec:
               
               echo "Waiting for SQL Gateway to be ready..."
               until curl -s http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/info > /dev/null; do
-                sleep 5
+                echo "Waiting for SQL Gateway... retrying in {{ .Values.bootstrap.backoffSeconds }} seconds"
+                sleep {{ .Values.bootstrap.backoffSeconds }}
               done
               
-              echo "SQL Gateway is ready, submitting job..."
+              echo "SQL Gateway is ready, submitting SQL jobs..."
               
-              {{- if .Values.restoreFromSavepoint }}
-              SAVEPOINT_OPTION="-d?savepoint.path={{ .Values.restoreFromSavepoint }}"
-              {{- else }}
-              SAVEPOINT_OPTION=""
-              {{- end }}
+              # Submit SQL jobs for each pipeline defined in values.yaml
+              {{- range .Values.pipelines }}
+              {{- if .enabled }}
               
-              JOB_SQL=$(cat /sql/job.sql)
+              # Create SQL for {{ .name }}
+              cat > /tmp/{{ .name }}.sql << EOF
+              CREATE TABLE {{ .source.table | replace "." "_" }}_source (
+                  id INT,
+                  -- Add more fields as needed
+                  PRIMARY KEY (id) NOT ENFORCED
+              ) WITH (
+                  'connector' = '{{ .source.type }}',
+                  'hostname' = '{{ $.Values.externalServices.mssql.host }}',
+                  'port' = '{{ $.Values.externalServices.mssql.port }}',
+                  'username' = '\${MSSQL_USERNAME}',
+                  'password' = '\${MSSQL_PASSWORD}',
+                  'database-name' = '{{ $.Values.externalServices.mssql.database }}',
+                  'table-name' = '{{ .source.table }}'
+                  {{- range $key, $value := .source.options }}
+                  ,'{{ $key }}' = '{{ $value }}'
+                  {{- end }}
+              );
               
-              # Create session
-              SESSION_HANDLE=$(curl -s -X POST http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions \
+              CREATE TABLE {{ .sink.topic | replace "." "_" }}_sink (
+                  id INT,
+                  -- Add more fields as needed
+                  PRIMARY KEY (id) NOT ENFORCED
+              ) WITH (
+                  'connector' = 'kafka',
+                  'topic' = '{{ .sink.topic }}',
+                  'properties.bootstrap.servers' = '{{ $.Values.externalServices.kafka.brokers }}'
+                  {{- range $key, $value := .sink.options }}
+                  ,'{{ $key }}' = '{{ $value }}'
+                  {{- end }}
+              );
+              
+              INSERT INTO {{ .sink.topic | replace "." "_" }}_sink
+              SELECT * FROM {{ .source.table | replace "." "_" }}_source;
+              EOF
+              
+              # Submit the SQL job
+              curl -s -X POST http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions \
                 -H "Content-Type: application/json" \
-                -d '{"sessionName":"bootstrap-session"}' | jq -r '.sessionHandle')
+                -d '{"sessionName":"{{ .name }}-session"}' | \
+              SESSION_HANDLE=$(jq -r '.sessionHandle')
               
               if [ -z "$SESSION_HANDLE" ] || [ "$SESSION_HANDLE" = "null" ]; then
-                echo "Failed to create session"
-                exit 1
+                  echo "Failed to create session for {{ .name }}"
+                  exit 1
               fi
               
-              echo "Session created with handle: $SESSION_HANDLE"
+              echo "Session created for {{ .name }} with handle: $SESSION_HANDLE"
               
               # Execute SQL statements
               curl -s -X POST "http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions/${SESSION_HANDLE}/statements" \
                 -H "Content-Type: application/json" \
-                -d "{\"statement\":\"${JOB_SQL}\"${SAVEPOINT_OPTION}}"
+                -d "{\"statement\":\"$(cat /tmp/{{ .name }}.sql | tr '\n' ' ')\"}"
               
-              echo "Job submitted successfully"
+              echo "Job submitted for {{ .name }}"
               
-              # Close session
-              curl -s -X DELETE "http://${SQLGATEWAY_SERVICE}:${SQLGATEWAY_PORT}/v1/sessions/${SESSION_HANDLE}"
+              {{- end }}
+              {{- end }}
+              
               {{- end }}
           resources:
             {{- toYaml .Values.bootstrap.resources | nindent 12 }}
           volumeMounts:
-            - name: sql-volume
-              mountPath: /sql
+            - name: pipeline-definitions
+              mountPath: /pipelines
       volumes:
-        - name: sql-volume
+        - name: pipeline-definitions
           configMap:
             name: {{ include "flink-cdc.fullname" . }}-config
             items:
-              - key: job.sql
-                path: job.sql
+              - key: pipeline-definitions.json
+                path: pipeline-definitions.json
 {{- end }}
+---

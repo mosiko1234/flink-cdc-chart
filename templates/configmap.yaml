@@ -1,4 +1,4 @@
-# configmap.yaml
+# templates/configmap.yaml
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -43,30 +43,6 @@ data:
     appender.console.layout.type = PatternLayout
     appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
     
-  sql.yaml: |
-    catalogs:
-      - name: mssql_catalog
-        type: jdbc-catalog
-        default-database: ${MSSQL_DATABASE}
-        username: ${MSSQL_USERNAME}
-        password: ${MSSQL_PASSWORD}
-        base-url: jdbc:sqlserver://${MSSQL_SERVER}:${MSSQL_PORT};databaseName=${MSSQL_DATABASE}
-        driver: com.microsoft.sqlserver.jdbc.SQLServerDriver
-      - name: kafka_catalog
-        type: generic_in_memory
-        default-database: default
-
-  job.sql: |
-{{ .Files.Get "files/sql/job.sql" | indent 4 }}
----
-# Add a configmap for CDC Gateway configuration
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "flink-cdc.fullname" . }}-cdcgateway-config
-  labels:
-    {{- include "flink-cdc.labels" . | nindent 4 }}
-data:
   cdcgateway-config.yaml: |
     adminPort: {{ .Values.cdcGateway.configuration.adminPort }}
     maxConnections: {{ .Values.cdcGateway.configuration.maxConnections }}
@@ -75,6 +51,44 @@ data:
     stateBackend: "{{ .Values.flinkConfiguration.state.backend }}"
     checkpointsDir: "{{ .Values.flinkConfiguration.state.checkpoints.dir }}"
     savepointsDir: "{{ .Values.flinkConfiguration.state.savepoints.dir }}"
-    s3Endpoint: "{{ .Values.flinkConfiguration.s3.endpoint }}"
+    s3Endpoint: "{{ .Values.externalServices.minio.endpoint }}"
     connectorJarsPath: "/opt/flink/lib"
+    
+  pipeline-definitions.json: |
+    {
+      "pipelines": [
+      {{- range $index, $pipeline := .Values.pipelines }}
+      {{- if $pipeline.enabled }}
+        {{- if $index }},{{ end }}
+        {
+          "name": "{{ $pipeline.name }}",
+          "source": {
+            "type": "{{ $pipeline.source.type }}",
+            "config": {
+              "hostname": "{{ $.Values.externalServices.mssql.host }}",
+              "port": "{{ $.Values.externalServices.mssql.port }}",
+              "username": "${MSSQL_USERNAME}",
+              "password": "${MSSQL_PASSWORD}",
+              "database-name": "{{ $.Values.externalServices.mssql.database }}",
+              "table-name": "{{ $pipeline.source.table }}"
+              {{- range $key, $value := $pipeline.source.options }}
+              ,"{{ $key }}": "{{ $value }}"
+              {{- end }}
+            }
+          },
+          "sink": {
+            "type": "{{ $pipeline.sink.type }}",
+            "config": {
+              "bootstrapServers": "{{ $.Values.externalServices.kafka.brokers }}",
+              "topic": "{{ $pipeline.sink.topic }}"
+              {{- range $key, $value := $pipeline.sink.options }}
+              ,"{{ $key }}": "{{ $value }}"
+              {{- end }}
+            }
+          }
+        }
+      {{- end }}
+      {{- end }}
+      ]
+    }
 ---

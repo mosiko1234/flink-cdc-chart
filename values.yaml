@@ -1,41 +1,40 @@
 # values.yaml
 ---
+# Global settings
 global:
-  imageRegistry: ""  # Registry for air-gapped environment
+  imageRegistry: "registry.example.com"  # Internal registry for air-gapped environments
   imagePullSecrets: []
   storageClass: ""
+  namespace: "flink-cdc"
 
+# Image settings
 image:
-  repository: registry.example.com/flink  # Update with your internal registry
+  repository: registry.example.com/flink
   tag: 1.17.1
   pullPolicy: IfNotPresent
 
-# CDC Gateway specific image (could be the same as Flink with different args)
-cdcGateway:
-  image:
-    repository: registry.example.com/flink-cdc  # Update with your CDC gateway image
-    tag: "0.7.0"
-    pullPolicy: IfNotPresent
-  enabled: true
-  replicas: 1
-  resources:
-    limits:
-      cpu: 1
-      memory: 1Gi
-    requests:
-      cpu: 0.5
-      memory: 512Mi
-  port: 8084  # Different from SQL Gateway port
-  configuration:
-    adminPort: 8085
-    maxConnections: 100
-    maxConcurrentJobs: 10
-    
+# Name override options
 nameOverride: ""
 fullnameOverride: ""
 
+# Security Context for OpenShift (restricted-v2)
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false  # Read-only when possible
+  capabilities:
+    drop:
+      - ALL
+  # Don't set runAsUser, runAsGroup, fsGroup (OpenShift sets them automatically)
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# JobManager configuration
 jobmanager:
-  replicas: 1
+  replicas: 1  # For HA, increase to 2
   resources:
     limits:
       cpu: 2
@@ -47,9 +46,12 @@ jobmanager:
     ui: 8081
     rpc: 6123
     blob: 6124
-    
+  highAvailability:
+    enabled: false  # Set to true for HA
+
+# TaskManager configuration
 taskmanager:
-  replicas: 1
+  replicas: 2  # Increase based on workload
   resources:
     limits:
       cpu: 4
@@ -61,7 +63,8 @@ taskmanager:
     rpc: 6122
     data: 6121
   slots: 2
-    
+
+# SQL Gateway configuration
 sqlGateway:
   enabled: true
   replicas: 1
@@ -74,22 +77,68 @@ sqlGateway:
       memory: 512Mi
   port: 8083
 
-securityContext:
-  # OpenShift restricted-v2 SCC compatibility
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false  # Set to true if possible, but might need false for logs
-  capabilities:
-    drop:
-      - ALL
-  # Don't set runAsUser, runAsGroup, fsGroup - let OpenShift assign them
+# CDC Gateway configuration
+cdcGateway:
+  enabled: true
+  replicas: 1
+  image:
+    repository: registry.example.com/flink-cdc
+    tag: "0.7.0"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 0.5
+      memory: 512Mi
+  port: 8084
+  configuration:
+    adminPort: 8085
+    maxConnections: 100
+    maxConcurrentJobs: 10
 
-serviceAccount:
-  create: true
-  name: ""
-  annotations: {}
+# External services configuration
+externalServices:
+  # MSSQL connection information
+  mssql:
+    host: "mssql.example.com"
+    port: 1433
+    database: "your_database"
+    credentialsSecret: "mssql-credentials"
+    options:
+      applicationName: "flink-cdc"
+      trustServerCertificate: true
+    # CDC specific options
+    cdcTables:
+      - schema: "dbo"
+        table: "table1"
+      - schema: "dbo"
+        table: "table2"
+      - schema: "sales"
+        table: "orders"
 
+  # Kafka connection information
+  kafka:
+    brokers: "kafka-broker-1.example.com:9092,kafka-broker-2.example.com:9092"
+    credentialsSecret: "kafka-credentials"
+    # Kafka topic configuration (optional)
+    defaultTopicConfig:
+      partitions: 3
+      replicationFactor: 3
+      retention: "7d"
+
+  # MinIO/S3 connection for checkpoints & savepoints
+  minio:
+    endpoint: "http://minio.example.com:9000"
+    credentialsSecret: "minio-credentials"
+    checkpointBucket: "flink-checkpoints"
+    savepointBucket: "flink-savepoints"
+    pathStyleAccess: true
+
+# Flink configuration settings
 flinkConfiguration:
-  # Common configuration for all components
+  # Core settings
   "taskmanager.numberOfTaskSlots": "2"
   "parallelism.default": "2"
   "state.backend": "rocksdb"
@@ -97,18 +146,68 @@ flinkConfiguration:
   "execution.checkpointing.interval": "60000"  # 1 minute
   "execution.checkpointing.mode": "EXACTLY_ONCE"
   
+  # Memory configuration for better performance
+  "taskmanager.memory.process.size": "4g"
+  "taskmanager.memory.network.fraction": "0.1"
+  "taskmanager.memory.managed.fraction": "0.4"
+  
   # S3/MinIO checkpoint configuration
   "state.checkpoints.dir": "s3://flink-checkpoints/"
   "state.savepoints.dir": "s3://flink-savepoints/"
-  "s3.endpoint": "http://minio.example.com:9000"  # Update with your MinIO service
+  "s3.endpoint": "${MINIO_ENDPOINT}"
   "s3.path.style.access": "true"
-  "s3.access-key": ""  # To be provided in secrets
-  "s3.secret-key": ""  # To be provided in secrets
+  
+  # Restart strategy
+  "restart-strategy": "fixed-delay"
+  "restart-strategy.fixed-delay.attempts": "3"
+  "restart-strategy.fixed-delay.delay": "10s"
 
+# CDC Pipeline definitions
+pipelines:
+  - name: "table1-to-kafka"
+    enabled: true
+    source:
+      type: "sqlserver-cdc"
+      table: "dbo.table1"
+      options:
+        scan.startup.mode: "initial"
+    sink:
+      type: "kafka"
+      topic: "cdc.table1"
+      options:
+        format: "json"
+  
+  - name: "table2-to-kafka"
+    enabled: true
+    source:
+      type: "sqlserver-cdc"
+      table: "dbo.table2"
+      options:
+        scan.startup.mode: "initial"
+    sink:
+      type: "kafka"
+      topic: "cdc.table2"
+      options:
+        format: "json"
+  
+  - name: "orders-to-kafka"
+    enabled: true
+    source:
+      type: "sqlserver-cdc"
+      table: "sales.orders"
+      options:
+        scan.startup.mode: "initial"
+    sink:
+      type: "kafka"
+      topic: "cdc.orders"
+      options:
+        format: "json"
+
+# Bootstrap job configuration
 bootstrap:
   enabled: true
   image:
-    repository: registry.example.com/curl  # For air-gapped environments
+    repository: registry.example.com/curl
     tag: latest
     pullPolicy: IfNotPresent
   resources:
@@ -118,63 +217,49 @@ bootstrap:
     requests:
       cpu: 100m
       memory: 128Mi
-  useCdcGateway: true  # Set to true to use CDC Gateway for bootstrapping
-  cdcConnectors:
-    - name: "mssql-source"
-      type: "sqlserver-cdc"
-      configuration:
-        hostname: "${MSSQL_SERVER}"
-        port: "${MSSQL_PORT}"
-        username: "${MSSQL_USERNAME}"
-        password: "${MSSQL_PASSWORD}"
-        database-name: "${MSSQL_DATABASE}"
-        table-name: "source_table"
-        database-history: "memory"
-        include-schema-changes: "true"
-    - name: "kafka-sink"
-      type: "kafka"
-      configuration:
-        bootstrapServers: "${KAFKA_BROKERS}"
-        topic: "sink_topic"
-        format: "json"
+  useCdcGateway: true  # Use CDC Gateway for bootstrapping
+  retries: 5
+  backoffSeconds: 10
 
-restoreFromSavepoint: ""  # Path to savepoint in S3/MinIO
-
+# Persistence configuration
 persistence:
   enabled: true
   size: 10Gi
   storageClassName: ""
 
+# Monitoring configuration
 monitoring:
   enabled: true
   serviceMonitor:
-    enabled: false
+    enabled: false  # Set to true if using Prometheus Operator
   prometheusRule:
-    enabled: false
+    enabled: false  # Set to true if using Prometheus Operator
+  dashboards:
+    enabled: false  # Set to true if using Grafana
 
-# Logs configuration
+# Log configuration
 logging:
   logLevel: INFO
   
-# Environment variables for all Flink components
-env:
-  - name: MSSQL_SERVER
-    value: "mssql.example.com"
-  - name: MSSQL_PORT
-    value: "1433"
-  - name: MSSQL_DATABASE
-    value: "example_db"
-  - name: KAFKA_BROKERS
-    value: "kafka-broker:9092"
-  
-# Secret references for credentials
-secrets:
-  mssqlCredentials:
-    name: "mssql-creds"
+# Environment variables
+extraEnvVars:
+  - name: TZ
+    value: "UTC"
+  - name: JAVA_OPTS
+    value: "-XX:+UseG1GC -XX:MaxGCPauseMillis=100"
+
+# Secret references
+existingSecrets:
+  mssqlCredentials: 
+    name: "mssql-credentials"
     usernameKey: "username"
     passwordKey: "password"
-  s3Credentials:
-    name: "s3-creds"
+  kafkaCredentials:
+    name: "kafka-credentials"
+    usernameKey: "username"
+    passwordKey: "password"
+  minioCredentials:
+    name: "minio-credentials"
     accessKeyKey: "accessKey"
     secretKeyKey: "secretKey"
 
@@ -182,7 +267,7 @@ secrets:
 networkPolicy:
   enabled: false
 
-# Service type - using ClusterIP as required
+# Service type - using ClusterIP as required for OpenShift
 service:
   type: ClusterIP
 ---

@@ -1,4 +1,4 @@
-# service-sqlgateway.yaml
+# templates/service-sqlgateway.yaml
 ---
 {{- if .Values.sqlGateway.enabled }}
 apiVersion: v1
