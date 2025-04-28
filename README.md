@@ -25,7 +25,7 @@
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/mosiko1234/flink-cdc-chart.git
+git clone https://github.com/yourusername/flink-cdc-chart.git
 cd flink-cdc-chart
 
 # Configure your settings in values.yaml
@@ -90,17 +90,17 @@ This Helm chart deploys a production-ready CDC solution that captures changes fr
 
 ```mermaid
 graph LR
-    MSSQL[(MSSQL DB)] --> |CDC Events| JobMgr(Flink JobManager)
+    MSSQL[(MSSQL DB)] --> |CDC Events| CDCGateway(CDC Gateway)
+    CDCGateway --> |Manage| JobMgr(Flink JobManager)
     JobMgr --> TaskMgr(Flink TaskManagers)
     TaskMgr --> |Process Changes| Kafka[(Kafka Topics)]
     TaskMgr --> |State| MinIO[(MinIO Storage)]
-    CDCGateway(CDC Gateway) --> |Manage| JobMgr
     SQLGateway(SQL Gateway) --> |Query| JobMgr
     Bootstrap(Bootstrap Job) --> |Initialize| CDCGateway
     subgraph "Flink CDC Connector"
+        CDCGateway
         JobMgr
         TaskMgr
-        CDCGateway
         SQLGateway
         Bootstrap
     end
@@ -259,19 +259,19 @@ Before deploying, create these secrets:
 
 ```bash
 # MSSQL credentials
-kubectl create secret generic mssql-credentials \
+oc create secret generic mssql-credentials \
   --from-literal=username=your_mssql_user \
   --from-literal=password=your_mssql_password \
   -n flink-cdc
 
 # Kafka credentials (if using SASL)
-kubectl create secret generic kafka-credentials \
+oc create secret generic kafka-credentials \
   --from-literal=username=your_kafka_user \
   --from-literal=password=your_kafka_password \
   -n flink-cdc
 
 # MinIO/S3 credentials
-kubectl create secret generic minio-credentials \
+oc create secret generic minio-credentials \
   --from-literal=accessKey=your_minio_access_key \
   --from-literal=secretKey=your_minio_secret_key \
   -n flink-cdc
@@ -333,13 +333,13 @@ monitoring:
 
 ```bash
 # JobManager logs
-kubectl logs -f deploy/flink-cdc-jobmanager -n flink-cdc
+oc logs -f deploy/flink-cdc-jobmanager -n flink-cdc
 
 # TaskManager logs 
-kubectl logs -f deploy/flink-cdc-taskmanager -n flink-cdc
+oc logs -f deploy/flink-cdc-taskmanager -n flink-cdc
 
 # CDC Gateway logs
-kubectl logs -f deploy/flink-cdc-cdcgateway -n flink-cdc
+oc logs -f deploy/flink-cdc-cdcgateway -n flink-cdc
 ```
 
 ---
@@ -358,8 +358,8 @@ kubectl logs -f deploy/flink-cdc-cdcgateway -n flink-cdc
 
 For issues, feature requests, or contributions, please:
 
-1. Open an issue in our [GitHub repository](https://github.com/mosiko1234/flink-cdc-chart/issues)
-2. For commercial support, contact us at mosiko1234@gmail.com
+1. Open an issue in our [GitHub repository](https://github.com/yourusername/flink-cdc-chart/issues)
+2. For commercial support, contact us at admin@example.com
 
 ---
 
