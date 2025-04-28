@@ -1,156 +1,195 @@
-# Flink CDC Connector Helm Chart - README
+# Apache Flink CDC Connector for OpenShift
 
-## 📄 Overview
+<div align="center">
 
-This Helm chart deploys an **Apache Flink** cluster with full **CDC (Change Data Capture)** capabilities, integrated with **MSSQL**, **Kafka**, and **MinIO/S3** storage. It is optimized for **air-gapped OpenShift environments**.
+![Apache Flink Logo](https://flink.apache.org/img/logo/png/1000/flink_squirrel_1000.png)
 
-It includes:
+**Real-time data synchronization from MSSQL to Kafka in air-gapped environments**
 
-- Flink JobManager & TaskManagers.
-- SQL Gateway for dynamic SQL job submission.
-- CDC Gateway for easy pipeline management.
-- Persistent storage for state handling (with MinIO/S3).
-- Secure access to MSSQL/Kafka/S3 via Kubernetes Secrets.
+[![Flink Version](https://img.shields.io/badge/Flink-1.17.1-blue)](https://flink.apache.org/)
+[![Helm Chart](https://img.shields.io/badge/Helm-v1.0.0-green)](https://helm.sh/)
+[![Platform](https://img.shields.io/badge/Platform-OpenShift-red)](https://www.redhat.com/en/technologies/cloud-computing/openshift)
 
----
+</div>
 
-## 🏢 Architecture Diagram
+## 🚀 Quick Start
 
-```text
-[MSSQL CDC]  -->  [Flink CDC Connector]  -->  [Kafka Topics]  -->  [Consumers]
-                                      \
-                                       -> [State Savepoints/Checkpoints in MinIO]
+### Prerequisites
+- Kubernetes or OpenShift cluster
+- Internal Docker Registry (air-gapped environment)
+- Helm 3.x installed
+- MSSQL Server with CDC enabled
+- Kafka Cluster
+- MinIO/S3 Compatible Storage
+
+### Installation
+```bash
+# Clone the repository
+git clone https://github.com/mosiko1234/flink-cdc-chart.git
+cd flink-cdc-chart
+
+# Configure your settings in values.yaml
+# Then install the chart
+helm install flink-cdc ./flink-cdc-connector -n flink-cdc --create-namespace
 ```
 
-Components deployed:
-
-- **Flink JobManager** - Central control and UI.
-- **Flink TaskManagers** - Execute CDC processing tasks.
-- **SQL Gateway** (optional) - Accepts dynamic SQL jobs.
-- **CDC Gateway** - Simplified CDC pipelines manager.
-- **Bootstrap Job** - Auto-load pipelines on startup.
-- **Persistent Volumes** - For Flink state and logs.
-
----
-
-## 🌐 Main Components Explained
-
-### 📊 Flink
-
-Apache Flink is responsible for processing CDC events in real-time.
-
-- Configured to use **RocksDB** state backend.
-- State is stored externally on **MinIO/S3** for resilience.
-
-### 👤 SQL Gateway vs CDC Gateway
-
-| Feature  | SQL Gateway                          | CDC Gateway                             |
-| -------- | ------------------------------------ | --------------------------------------- |
-| Purpose  | Accept general SQL jobs via REST/CLI | Simplify CDC pipelines management       |
-| Use Case | Dynamic jobs, ad-hoc queries         | Standard CDC ingestion (MSSQL to Kafka) |
-| Input    | SQL DDL/DML                          | JSON pipelines                          |
-| Best For | Developers                           | Integrators/Operators                   |
-
-**In this project**, you should primarily use **CDC Gateway**.
-
-### 🏢 MSSQL
-
-Your MSSQL database has CDC enabled on selected tables. Flink CDC Source connectors listen to transaction logs and stream changes.
-
-**Important MSSQL details:**
-
-- Connection secured via Kubernetes Secret.
-- SSL Trust: Enabled with `trustServerCertificate: true`.
-- Table selection is configured per pipeline.
-
-### 🌐 Kafka
-
-Kafka is the messaging backbone.
-
-- Every table change captured from MSSQL is published to a Kafka topic.
-- Topics are named like `cdc.<table-name>`, e.g., `cdc.orders`.
-- Secure Kafka connection via username/password secrets.
-
-### ⛳️ MinIO (S3 Compatible Storage)
-
-Flink uses MinIO for:
-
-- Checkpoints (fault-tolerance snapshots).
-- Savepoints (manual state save operations).
-
-MinIO is accessed internally over HTTP, with path-style access enabled.
-
-### 💼 Secrets Management
-
-All sensitive credentials (MSSQL, Kafka, MinIO) are stored securely in Kubernetes Secrets and injected at runtime.
-
----
-
-## 🔧 Deployment Instructions
-
-### 1. Customize `values.yaml`
-
-- Set `global.imageRegistry`, `namespace`, and relevant resource limits.
-- Configure your MSSQL/Kafka/MinIO credentials under `existingSecrets`.
-- Define your CDC pipelines under `pipelines` section.
-
-### 2. Install the Chart
-
+### Access and Verification
 ```bash
-helm install flink-cdc-connector ./flink-cdc-connector -n flink-cdc --create-namespace
-```
+# Get the Flink JobManager route (OpenShift)
+oc get route flink-cdc-jobmanager -n flink-cdc
 
-### 3. Monitor Deployments
+# Check CDC Gateway health
+curl http://flink-cdc-cdcgateway:8084/health
 
-- JobManager Web UI: `http://<route-to-jobmanager>`
-- CDC Gateway API: `http://flink-cdc-cdcgateway:8084`
-
-You can access Flink's native UI to monitor jobs, tasks, and health.
-
----
-
-## 🛡️ Security Considerations
-
-- Images are pulled from your internal air-gapped registry.
-- No external Internet access is required.
-- All ServiceAccounts are restricted (`restricted-v2` OpenShift SCC).
-- Secrets are injected safely without hardcoding passwords.
-- TLS is recommended for Kafka if supported internally.
-
----
-
-## 🚀 Usage Examples
-
-### 📅 View Existing Pipelines
-
-```bash
+# View running pipelines
 curl http://flink-cdc-cdcgateway:8084/api/v1/pipelines
 ```
 
-### ➕ Add New CDC Pipeline Dynamically
+---
 
-```bash
-curl -X POST http://flink-cdc-cdcgateway:8084/api/v1/pipelines/import \
-     -H "Content-Type: application/json" \
-     -d @pipeline-definition.json
+## 📋 What's Inside
+
+This Helm chart deploys a production-ready CDC solution that captures changes from MSSQL databases and streams them to Kafka topics in real-time. It's specifically designed for **air-gapped OpenShift environments** where security and reliability are paramount.
+
+<table>
+<tr>
+<th>Component</th>
+<th>Purpose</th>
+<th>Scalability</th>
+</tr>
+<tr>
+<td>Flink JobManager</td>
+<td>Orchestrates CDC jobs and provides web UI</td>
+<td>Supports HA mode (2+ replicas)</td>
+</tr>
+<tr>
+<td>Flink TaskManagers</td>
+<td>Execute CDC processing workloads</td>
+<td>Horizontally scalable (2+ replicas)</td>
+</tr>
+<tr>
+<td>SQL Gateway</td>
+<td>Accepts SQL queries for dynamic data access</td>
+<td>Optional component</td>
+</tr>
+<tr>
+<td>CDC Gateway</td>
+<td>Simplifies CDC pipeline management</td>
+<td>Recommended for production</td>
+</tr>
+<tr>
+<td>Bootstrap Job</td>
+<td>Auto-initializes CDC pipelines</td>
+<td>One-time job at startup</td>
+</tr>
+</table>
+
+---
+
+## 🏛️ Architecture
+
+```mermaid
+graph LR
+    MSSQL[(MSSQL DB)] --> |CDC Events| JobMgr(Flink JobManager)
+    JobMgr --> TaskMgr(Flink TaskManagers)
+    TaskMgr --> |Process Changes| Kafka[(Kafka Topics)]
+    TaskMgr --> |State| MinIO[(MinIO Storage)]
+    CDCGateway(CDC Gateway) --> |Manage| JobMgr
+    SQLGateway(SQL Gateway) --> |Query| JobMgr
+    Bootstrap(Bootstrap Job) --> |Initialize| CDCGateway
+    subgraph "Flink CDC Connector"
+        JobMgr
+        TaskMgr
+        CDCGateway
+        SQLGateway
+        Bootstrap
+    end
 ```
 
-`pipeline-definition.json` Example:
+### Data Flow
+1. **Capture**: MSSQL transaction logs are monitored for changes (inserts, updates, deletes)
+2. **Process**: Flink CDC processes these changes through configured pipelines
+3. **Publish**: Changes are formatted and published to designated Kafka topics
+4. **Store**: Checkpoints and savepoints stored in MinIO/S3 for resilience
+
+---
+
+## ⚙️ Configuration Guide
+
+### Essential `values.yaml` Settings
+
+#### Global Settings
+```yaml
+global:
+  imageRegistry: "registry.example.com"  # Your air-gapped registry
+  namespace: "flink-cdc"
+```
+
+#### External Services
+```yaml
+externalServices:
+  # MSSQL connection 
+  mssql:
+    host: "mssql.example.com"
+    port: 1433
+    database: "your_database"
+    credentialsSecret: "mssql-credentials"
+    cdcTables:
+      - schema: "dbo"
+        table: "table1"
+
+  # Kafka connection
+  kafka:
+    brokers: "kafka-broker-1.example.com:9092,kafka-broker-2.example.com:9092"
+    credentialsSecret: "kafka-credentials"
+    
+  # MinIO/S3 connection
+  minio:
+    endpoint: "http://minio.example.com:9000"
+    credentialsSecret: "minio-credentials"
+    checkpointBucket: "flink-checkpoints"
+    savepointBucket: "flink-savepoints"
+```
+
+#### CDC Pipeline Configuration
+```yaml
+pipelines:
+  - name: "orders-to-kafka"
+    enabled: true
+    source:
+      type: "sqlserver-cdc"
+      table: "sales.orders"
+      options:
+        scan.startup.mode: "initial"
+    sink:
+      type: "kafka"
+      topic: "cdc.orders"
+      options:
+        format: "json"
+```
+
+---
+
+## 🛠️ Advanced Usage
+
+### Adding New CDC Pipelines Dynamically
+
+Create a pipeline definition file:
 
 ```json
 {
   "pipelines": [
     {
-      "name": "orders-cdc",
+      "name": "new-table-to-kafka",
       "source": {
         "type": "sqlserver-cdc",
         "config": {
           "hostname": "mssql.example.com",
           "port": 1433,
-          "username": "myuser",
-          "password": "mypassword",
+          "username": "${MSSQL_USERNAME}",
+          "password": "${MSSQL_PASSWORD}",
           "database-name": "your_database",
-          "table-name": "sales.orders",
+          "table-name": "dbo.new_table",
           "scan.startup.mode": "initial"
         }
       },
@@ -158,7 +197,7 @@ curl -X POST http://flink-cdc-cdcgateway:8084/api/v1/pipelines/import \
         "type": "kafka",
         "config": {
           "bootstrapServers": "kafka-broker-1.example.com:9092",
-          "topic": "cdc.orders",
+          "topic": "cdc.new_table",
           "format": "json"
         }
       }
@@ -167,125 +206,165 @@ curl -X POST http://flink-cdc-cdcgateway:8084/api/v1/pipelines/import \
 }
 ```
 
----
+Submit the pipeline:
 
-## 🌟 Best Practices
-
-- Always define clear resource limits per component.
-- Monitor TaskManagers' CPU and memory usage closely.
-- Backup state regularly from MinIO.
-- Regularly validate CDC health by comparing MSSQL vs Kafka topics.
-- Use Kubernetes `PodDisruptionBudget` if HA is enabled.
-- Leverage Prometheus + Grafana for monitoring Flink cluster if possible.
-
----
-
-## 🎉 You're Ready!
-
-With this chart and environment:
-
-- MSSQL changes flow automatically to Kafka.
-- State is fully durable in MinIO.
-- Pipelines can be added, modified, or monitored dynamically.
-
-**Welcome to Production-Grade CDC on OpenShift! ✨**
-
----
-
-# 📌 References
-
-- [Apache Flink Documentation](https://nightlies.apache.org/flink/flink-docs-release-1.17/)
-- [Debezium CDC Connectors](https://debezium.io/)
-- [Kafka Documentation](https://kafka.apache.org/documentation/)
-- [MinIO S3 Gateway](https://min.io/)
-- [Helm Documentation](https://helm.sh/docs/)
-
-# Flink CDC Connector Helm Chart - README
-
-## 📄 Overview
-
-This Helm chart deploys an **Apache Flink** cluster with full **CDC (Change Data Capture)** capabilities, integrated with **MSSQL**, **Kafka**, and **MinIO/S3** storage. It is optimized for **air-gapped OpenShift environments**.
-
-It includes:
-- Flink JobManager & TaskManagers.
-- SQL Gateway for dynamic SQL job submission.
-- CDC Gateway for easy pipeline management.
-- Persistent storage for state handling (with MinIO/S3).
-- Secure access to MSSQL/Kafka/S3 via Kubernetes Secrets.
-
----
-
-# 🚀 Quickstart Guide
-
-## 1. Prerequisites
-- Kubernetes or OpenShift cluster
-- Internal Docker Registry
-- Helm 3.x installed
-- MSSQL Server with CDC enabled on required tables
-- Kafka Cluster
-- MinIO/S3 Compatible Storage
-
-## 2. Clone and Customize
-Clone the chart and edit `values.yaml`:
-- Set your image registry, namespace, resource limits.
-- Define connections to MSSQL, Kafka, and MinIO via Secrets.
-- List your CDC pipelines (source tables and sink topics).
-
-```bash
-git clone mosiko1234/flink-cdc-chart.git
-cd flink-cdc-connector
-vim values.yaml
-```
-
-## 3. Deploy to OpenShift
-```bash
-helm install flink-cdc-connector ./flink-cdc-connector -n flink-cdc --create-namespace
-```
-
-## 4. Verify
-Access Flink UI and CDC Gateway:
-- Flink UI: `http://<route-to-jobmanager>`
-- CDC Gateway API: `http://flink-cdc-cdcgateway:8084`
-
-Check running pipelines:
-```bash
-curl http://flink-cdc-cdcgateway:8084/api/v1/pipelines
-```
-
-## 5. Load New Pipelines (optional)
-Create `pipeline-definition.json` and import:
 ```bash
 curl -X POST http://flink-cdc-cdcgateway:8084/api/v1/pipelines/import \
      -H "Content-Type: application/json" \
      -d @pipeline-definition.json
 ```
 
-## 6. Monitor and Manage
-- Use Flink WebUI to monitor Jobs and TaskManagers.
-- Use CDC Gateway API to manage CDC pipelines.
-- Savepoints and checkpoints are automatically stored on MinIO.
+### Scaling for Production
 
-## 7. Backup and Restore
-- Backup Flink state by copying MinIO checkpoint/savepoint buckets.
-- In case of failure, recover using savepoints.
+For production workloads, consider these scaling options:
+
+```yaml
+# High Availability for JobManager
+jobmanager:
+  replicas: 2
+  highAvailability:
+    enabled: true
+
+# Increase TaskManager capacity
+taskmanager:
+  replicas: 4
+  resources:
+    limits:
+      cpu: 8
+      memory: 16Gi
+    requests:
+      cpu: 4
+      memory: 8Gi
+  slots: 4
+
+# Larger persistent storage
+persistence:
+  enabled: true
+  size: 100Gi
+```
 
 ---
 
-# 📄 Detailed Documentation
+## 🔒 Security Features
 
-See below for architecture, component explanations, security notes, and best practices.
+- **Air-gapped deployment**: No external internet connectivity required
+- **Secure credential management**: All sensitive information stored in Kubernetes Secrets
+- **OpenShift compatibility**: Adheres to OpenShift's restricted-v2 Security Context Constraints
+- **Service isolation**: Components are properly isolated with appropriate service accounts
+- **TLS support**: Compatible with TLS-secured Kafka and MSSQL connections
 
-(Continue reading for full component explanations and advanced topics)
+### Creating Required Secrets
+
+Before deploying, create these secrets:
+
+```bash
+# MSSQL credentials
+kubectl create secret generic mssql-credentials \
+  --from-literal=username=your_mssql_user \
+  --from-literal=password=your_mssql_password \
+  -n flink-cdc
+
+# Kafka credentials (if using SASL)
+kubectl create secret generic kafka-credentials \
+  --from-literal=username=your_kafka_user \
+  --from-literal=password=your_kafka_password \
+  -n flink-cdc
+
+# MinIO/S3 credentials
+kubectl create secret generic minio-credentials \
+  --from-literal=accessKey=your_minio_access_key \
+  --from-literal=secretKey=your_minio_secret_key \
+  -n flink-cdc
+```
 
 ---
 
-## 🏢 Architecture Diagram
+## 📊 Monitoring & Observability
 
-```text
-[MSSQL CDC]  -->  [Flink CDC Connector]  -->  [Kafka Topics]  -->  [Consumers]
-                                      \
-                                       -> [State Savepoints/Checkpoints in MinIO]
-``` 
+### Prometheus & Grafana Integration
 
-(remaining content unchanged)
+The chart includes optional ServiceMonitor and Prometheus Rule support:
 
+```yaml
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true  # For Prometheus Operator
+  prometheusRule:
+    enabled: true  # For alerting
+  dashboards:
+    enabled: true  # For Grafana
+```
+
+### Key Metrics to Monitor
+
+- Flink JobManager health (REST API & UI)
+- TaskManager slots utilization
+- CDC pipeline lag (time between source change and Kafka message)
+- Checkpoint completion rate and duration
+- JVM garbage collection metrics
+
+---
+
+## 🌟 Best Practices
+
+- **Resource Planning**: Size your TaskManagers appropriately for your workload
+- **State Management**: Use external checkpoints in MinIO/S3 for disaster recovery
+- **Pipeline Design**: Separate critical and non-critical tables into different pipelines
+- **Monitoring**: Implement alerts for pipeline failures and lag metrics
+- **Backups**: Regularly backup the MinIO/S3 buckets containing state
+- **Upgrading**: Use savepoints when upgrading Flink or configuration changes
+
+---
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+| Problem | Possible Cause | Solution |
+|---------|----------------|----------|
+| Pipeline not starting | MSSQL CDC not enabled | Enable CDC on database and tables |
+| Connection failures | Network or credential issues | Verify secrets and network connectivity |
+| Task failures | Resource limits too low | Increase memory/CPU limits |
+| Low throughput | Insufficient parallelism | Increase TaskManager slots and pipeline parallelism |
+| Checkpoint failures | MinIO connectivity issues | Check MinIO connection and credentials |
+
+### Logs to Check
+
+```bash
+# JobManager logs
+kubectl logs -f deploy/flink-cdc-jobmanager -n flink-cdc
+
+# TaskManager logs 
+kubectl logs -f deploy/flink-cdc-taskmanager -n flink-cdc
+
+# CDC Gateway logs
+kubectl logs -f deploy/flink-cdc-cdcgateway -n flink-cdc
+```
+
+---
+
+## 📘 References
+
+- [Apache Flink Documentation](https://nightlies.apache.org/flink/flink-docs-release-1.17/)
+- [Debezium & SQL Server CDC](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html)
+- [Kafka Documentation](https://kafka.apache.org/documentation/)
+- [MinIO Documentation](https://min.io/docs/minio/container/index.html)
+- [Helm Documentation](https://helm.sh/docs/)
+
+---
+
+## 🤝 Support & Contributions
+
+For issues, feature requests, or contributions, please:
+
+1. Open an issue in our [GitHub repository](https://github.com/mosiko1234/flink-cdc-chart/issues)
+2. For commercial support, contact us at mosiko1234@gmail.com
+
+---
+
+<div align="center">
+  
+### Made with ❤️ for the OpenShift Community
+
+</div>
