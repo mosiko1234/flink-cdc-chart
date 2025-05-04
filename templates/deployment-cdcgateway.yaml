@@ -17,21 +17,20 @@ spec:
     metadata:
       labels:
         {{- include "flink-cdc.cdcgateway.selectorLabels" . | nindent 8 }}
+      annotations:
+        openshift.io/scc: restricted
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "flink-cdc.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: cdcgateway
           image: "{{ .Values.cdcGateway.image.repository }}:{{ .Values.cdcGateway.image.tag }}"
           imagePullPolicy: {{ .Values.cdcGateway.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: {{ .Values.securityContext.readOnlyRootFilesystem }}
           args: ["gateway", "--config", "/opt/flink/conf/cdcgateway-config.yaml"]
           env:
             - name: FLINK_CONF_DIR
@@ -58,6 +57,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecrets.minioCredentials.name }}
                   key: {{ .Values.existingSecrets.minioCredentials.secretKeyKey }}
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.kafkaCredentials.name }}
+                  key: {{ .Values.existingSecrets.kafkaCredentials.usernameKey }}
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.kafkaCredentials.name }}
+                  key: {{ .Values.existingSecrets.kafkaCredentials.passwordKey }}
             {{- range .Values.extraEnvVars }}
             - name: {{ .name }}
               value: {{ .value | quote }}
@@ -94,6 +103,8 @@ spec:
             - name: pipeline-definitions
               mountPath: /opt/flink/pipelines/pipeline-definitions.json
               subPath: pipeline-definitions.json
+            - name: flink-tmp
+              mountPath: /tmp
       volumes:
         - name: flink-config-volume
           configMap:
@@ -118,6 +129,8 @@ spec:
         - name: flink-lib
           emptyDir: {}
         - name: flink-log
+          emptyDir: {}
+        - name: flink-tmp
           emptyDir: {}
 {{- end }}
 ---

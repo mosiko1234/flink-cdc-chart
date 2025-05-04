@@ -15,6 +15,8 @@ spec:
       labels:
         {{- include "flink-cdc.labels" . | nindent 8 }}
         app.kubernetes.io/component: bootstrap
+      annotations:
+        openshift.io/scc: restricted
     spec:
       restartPolicy: OnFailure
       {{- with .Values.global.imagePullSecrets }}
@@ -22,15 +24,12 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "flink-cdc.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: bootstrap
           image: "{{ .Values.bootstrap.image.repository }}:{{ .Values.bootstrap.image.tag }}"
           imagePullPolicy: {{ .Values.bootstrap.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
           command:
             - "/bin/sh"
             - "-c"
@@ -145,6 +144,8 @@ spec:
           volumeMounts:
             - name: pipeline-definitions
               mountPath: /pipelines
+            - name: flink-tmp
+              mountPath: /tmp
       volumes:
         - name: pipeline-definitions
           configMap:
@@ -152,5 +153,7 @@ spec:
             items:
               - key: pipeline-definitions.json
                 path: pipeline-definitions.json
+        - name: flink-tmp
+          emptyDir: {}
 {{- end }}
 ---

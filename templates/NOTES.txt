@@ -1,0 +1,42 @@
+Thank you for installing Apache Flink CDC Connector for OpenShift!
+
+The following services are now available:
+
+1. JobManager:
+   URL: http://{{ include "flink-cdc.fullname" . }}-jobmanager:{{ .Values.jobmanager.ports.ui }}
+   
+   To access the JobManager UI, run:
+   kubectl port-forward svc/{{ include "flink-cdc.fullname" . }}-jobmanager {{ .Values.jobmanager.ports.ui }}:{{ .Values.jobmanager.ports.ui }}
+   Then navigate to: http://localhost:{{ .Values.jobmanager.ports.ui }}
+
+2. CDC Gateway:
+{{- if .Values.cdcGateway.enabled }}
+   URL: http://{{ include "flink-cdc.fullname" . }}-cdcgateway:{{ .Values.cdcGateway.port }}
+   
+   To check CDC activity:
+   kubectl port-forward svc/{{ include "flink-cdc.fullname" . }}-cdcgateway {{ .Values.cdcGateway.port }}:{{ .Values.cdcGateway.port }}
+   curl http://localhost:{{ .Values.cdcGateway.port }}/api/v1/pipelines
+{{- else }}
+   CDC Gateway is not enabled. Enable it by setting cdcGateway.enabled=true.
+{{- end }}
+
+3. SQL Gateway:
+{{- if .Values.sqlGateway.enabled }}
+   URL: http://{{ include "flink-cdc.fullname" . }}-sqlgateway:{{ .Values.sqlGateway.port }}
+{{- else }}
+   SQL Gateway is not enabled. Enable it by setting sqlGateway.enabled=true.
+{{- end }}
+
+Active pipelines:
+{{- range .Values.pipelines }}
+{{- if .enabled }}
+- {{ .name }}: {{ .source.table }} -> {{ .sink.topic }}
+{{- end }}
+{{- end }}
+
+For issues or support, check the logs:
+kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=jobmanager
+kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=taskmanager
+{{- if .Values.cdcGateway.enabled }}
+kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=cdcgateway
+{{- end }}

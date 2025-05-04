@@ -1,5 +1,3 @@
-# values.yaml
----
 # Global settings
 global:
   imageRegistry: "registry.example.com"  # Internal registry for air-gapped environments
@@ -17,14 +15,12 @@ image:
 nameOverride: ""
 fullnameOverride: ""
 
-# Security Context for OpenShift (restricted-v2)
+# Security Context for OpenShift
 securityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false  # Read-only when possible
   capabilities:
     drop:
       - ALL
-  # Don't set runAsUser, runAsGroup, fsGroup (OpenShift sets them automatically)
 
 # ServiceAccount configuration
 serviceAccount:
@@ -112,15 +108,16 @@ externalServices:
     # CDC specific options
     cdcTables:
       - schema: "dbo"
-        table: "table1"
+        table: "moshe_table_1"
       - schema: "dbo"
-        table: "table2"
-      - schema: "sales"
-        table: "orders"
+        table: "moshe_table_2"
+      - schema: "dbo"
+        table: "moshe_table_3"
 
   # Kafka connection information
   kafka:
     brokers: "kafka-broker-1.example.com:9092,kafka-broker-2.example.com:9092"
+    useSASL: false
     credentialsSecret: "kafka-credentials"
     # Kafka topic configuration (optional)
     defaultTopicConfig:
@@ -135,6 +132,24 @@ externalServices:
     checkpointBucket: "flink-checkpoints"
     savepointBucket: "flink-savepoints"
     pathStyleAccess: true
+
+# האם ליצור סיקרטים באופן אוטומטי
+createSecrets: true
+
+# פרטי התחברות ל-MSSQL
+mssqlAuth:
+  username: "admin"
+  password: "YourPassword123"
+
+# פרטי התחברות ל-MinIO/S3
+minioAuth:
+  accessKey: "minio"
+  secretKey: "minio123"
+
+# פרטי התחברות ל-Kafka
+kafkaAuth:
+  username: "kafka"
+  password: "kafka123"
 
 # Flink configuration settings
 flinkConfiguration:
@@ -164,42 +179,42 @@ flinkConfiguration:
 
 # CDC Pipeline definitions
 pipelines:
-  - name: "table1-to-kafka"
+  - name: "moshe-table-1-to-kafka"
     enabled: true
     source:
       type: "sqlserver-cdc"
-      table: "dbo.table1"
+      table: "dbo.moshe_table_1"
       options:
         scan.startup.mode: "initial"
     sink:
       type: "kafka"
-      topic: "cdc.table1"
+      topic: "cdc.moshe_table_1"
       options:
         format: "json"
   
-  - name: "table2-to-kafka"
+  - name: "moshe-table-2-to-kafka"
     enabled: true
     source:
       type: "sqlserver-cdc"
-      table: "dbo.table2"
+      table: "dbo.moshe_table_2"
       options:
         scan.startup.mode: "initial"
     sink:
       type: "kafka"
-      topic: "cdc.table2"
+      topic: "cdc.moshe_table_2"
       options:
         format: "json"
   
-  - name: "orders-to-kafka"
+  - name: "moshe-table-3-to-kafka"
     enabled: true
     source:
       type: "sqlserver-cdc"
-      table: "sales.orders"
+      table: "dbo.moshe_table_3"
       options:
         scan.startup.mode: "initial"
     sink:
       type: "kafka"
-      topic: "cdc.orders"
+      topic: "cdc.moshe_table_3"
       options:
         format: "json"
 
@@ -270,4 +285,3 @@ networkPolicy:
 # Service type - using ClusterIP as required for OpenShift
 service:
   type: ClusterIP
----

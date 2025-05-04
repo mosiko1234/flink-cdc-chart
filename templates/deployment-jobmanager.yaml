@@ -20,21 +20,20 @@ spec:
     metadata:
       labels:
         {{- include "flink-cdc.jobmanager.selectorLabels" . | nindent 8 }}
+      annotations:
+        openshift.io/scc: restricted
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "flink-cdc.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: jobmanager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: {{ .Values.securityContext.readOnlyRootFilesystem }}
           args: ["jobmanager"]
           env:
             - name: FLINK_CONF_DIR
@@ -61,6 +60,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecrets.minioCredentials.name }}
                   key: {{ .Values.existingSecrets.minioCredentials.secretKeyKey }}
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.kafkaCredentials.name }}
+                  key: {{ .Values.existingSecrets.kafkaCredentials.usernameKey }}
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.kafkaCredentials.name }}
+                  key: {{ .Values.existingSecrets.kafkaCredentials.passwordKey }}
             {{- range .Values.extraEnvVars }}
             - name: {{ .name }}
               value: {{ .value | quote }}
@@ -92,6 +101,8 @@ spec:
               mountPath: /opt/flink/lib
             - name: flink-log
               mountPath: /opt/flink/log
+            - name: flink-tmp
+              mountPath: /tmp
       volumes:
         - name: flink-config-volume
           configMap:
@@ -104,5 +115,7 @@ spec:
         - name: flink-lib
           emptyDir: {}
         - name: flink-log
+          emptyDir: {}
+        - name: flink-tmp
           emptyDir: {}
 ---
