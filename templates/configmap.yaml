@@ -1,5 +1,3 @@
-# templates/configmap.yaml
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,52 +6,87 @@ metadata:
     {{- include "flink-cdc.labels" . | nindent 4 }}
 data:
   flink-conf.yaml: |
+    # Basic configuration
+    jobmanager.rpc.address: {{ include "flink-cdc.fullname" . }}-jobmanager
+    taskmanager.numberOfTaskSlots: {{ .Values.taskmanager.slots | default "1" }}
+    
+    # Memory configuration
+    jobmanager.memory.process.size: 1600m
+    taskmanager.memory.process.size: 1728m
+    
+    # OpenShift compatibility settings
+    env.java.opts.jobmanager: "-Dorg.apache.flink.shaded.netty4.io.netty.tryReflectionSetAccessible=true"
+    env.java.opts.taskmanager: "-Dorg.apache.flink.shaded.netty4.io.netty.tryReflectionSetAccessible=true"
+    
+    # Fix class loading issues
+    classloader.resolve-order: "parent-first"
+    classloader.parent-first-patterns.additional: "org.apache.flink.shaded."
+    
+    # Override problematic settings that try to modify read-only filesystem
+    env.java.opts: "-Xmx1024m"
+    io.tmp.dirs: /tmp
+    
+    # Additional settings
+    execution.checkpointing.interval: 10000
+    state.backend: filesystem
+    state.checkpoints.dir: file:///tmp/flink-checkpoints
+    
     {{- range $key, $value := .Values.flinkConfiguration }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
-    
-    # Auto-configured settings
-    jobmanager.rpc.address: {{ include "flink-cdc.fullname" . }}-jobmanager
-    taskmanager.numberOfTaskSlots: {{ .Values.taskmanager.slots | quote }}
-    
+  
   log4j-console.properties: |
-    # This affects logging for both user code and Flink
-    rootLogger.level = {{ .Values.logging.logLevel }}
+    # Set root logger level to INFO and include console appender
+    rootLogger.level = INFO
     rootLogger.appenderRef.console.ref = ConsoleAppender
     
-    # Uncomment this if you want to _only_ change Flink's logging
-    #logger.flink.name = org.apache.flink
-    #logger.flink.level = INFO
+    # More verbose logging for Flink itself to help debugging
+    logger.flink.name = org.apache.flink
+    logger.flink.level = INFO
     
-    # The following lines keep the log level of common libraries/connectors on
-    # log level INFO. The root logger does not override this. You have to manually
-    # change the log levels here.
-    logger.akka.name = akka
-    logger.akka.level = INFO
-    logger.kafka.name = org.apache.kafka
-    logger.kafka.level = INFO
-    logger.hadoop.name = org.apache.hadoop
-    logger.hadoop.level = INFO
-    logger.zookeeper.name = org.apache.zookeeper
-    logger.zookeeper.level = INFO
+    # Silence noisy logger
+    logger.netty.name = org.apache.flink.shaded.netty4.io.netty
+    logger.netty.level = WARN
     
-    # Log all infos to the console
+    # Console appender configuration
     appender.console.name = ConsoleAppender
     appender.console.type = CONSOLE
     appender.console.layout.type = PatternLayout
     appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
-    
+  
   cdcgateway-config.yaml: |
     adminPort: {{ .Values.cdcGateway.configuration.adminPort }}
     maxConnections: {{ .Values.cdcGateway.configuration.maxConnections }}
     maxConcurrentJobs: {{ .Values.cdcGateway.configuration.maxConcurrentJobs }}
     flinkJobmanager: "{{ include "flink-cdc.fullname" . }}-jobmanager:{{ .Values.jobmanager.ports.rpc }}"
-    stateBackend: "{{ .Values.flinkConfiguration.state.backend }}"
-    checkpointsDir: "{{ .Values.flinkConfiguration.state.checkpoints.dir }}"
-    savepointsDir: "{{ .Values.flinkConfiguration.state.savepoints.dir }}"
+    stateBackend: "filesystem"
+    checkpointsDir: "file:///tmp/flink-checkpoints"
+    savepointsDir: "file:///tmp/flink-savepoints"
     s3Endpoint: "{{ .Values.externalServices.minio.endpoint }}"
-    connectorJarsPath: "/opt/flink/lib"
+    connectorJarsPath: "/opt/flink/plugins/cdc/lib"
+  
+  cdcgateway-entrypoint.sh: |
+    #!/bin/bash
+    set -e
     
+    # Setup environment
+    export FLINK_CONF_DIR=/opt/flink/conf
+    export FLINK_PLUGINS_DIR=/opt/flink/plugins
+    
+    # Direct log output to stdout
+    export LOG_OUTPUT=console
+    
+    echo "Starting CDC Gateway with custom entrypoint"
+    # For debugging
+    ls -la /opt/flink/lib/
+    
+    exec java \
+      -Dlog4j.configurationFile=${FLINK_CONF_DIR}/log4j-console.properties \
+      -Dorg.apache.flink.shaded.netty4.io.netty.tryReflectionSetAccessible=true \
+      -classpath "/opt/flink/lib/*:/opt/flink/plugins/*" \
+      org.apache.flink.cdc.runtime.Gateway \
+      --config ${FLINK_CONF_DIR}/cdcgateway-config.yaml
+  
   pipeline-definitions.json: |
     {
       "pipelines": [
@@ -83,8 +116,8 @@ data:
               "topic": "{{ $pipeline.sink.topic }}"
               {{- if $.Values.externalServices.kafka.useSASL }}
               ,"sasl.mechanism": "PLAIN",
-              ,"security.protocol": "SASL_PLAINTEXT",
-              ,"sasl.jaas.config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"${KAFKA_USERNAME}\" password=\"${KAFKA_PASSWORD}\";"
+              "security.protocol": "SASL_PLAINTEXT",
+              "sasl.jaas.config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"${KAFKA_USERNAME}\" password=\"${KAFKA_PASSWORD}\";"
               {{- end }}
               {{- range $key, $value := $pipeline.sink.options }}
               ,"{{ $key }}": "{{ $value }}"
@@ -96,4 +129,3 @@ data:
       {{- end }}
       ]
     }
----
